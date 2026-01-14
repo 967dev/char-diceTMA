@@ -7,12 +7,18 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
     const [activeTab, setActiveTab] = useState('main'); // main, combat, notes
     const [isDiceOpen, setIsDiceOpen] = useState(false);
     const [hpPopup, setHpPopup] = useState(false);
+    const [hpChangeVal, setHpChangeVal] = useState(0);
+    const [equipmentType, setEquipmentType] = useState('weapon'); // weapon, armor, item
+    const [newNote, setNewNote] = useState({ title: '', content: '' });
+    const [isAddingNote, setIsAddingNote] = useState(false);
 
     const calculateMod = (score) => Math.floor((score - 10) / 2);
 
     const handleHpChange = (amount) => {
-        const newHp = Math.min(character.hpMax, Math.max(0, (character.hpCurrent || character.hpMax) + amount));
+        const newHp = Math.min(character.hpMax, Math.max(0, (character.hpCurrent ?? character.hpMax) + hpChangeVal));
         onUpdate({ hpCurrent: newHp });
+        setHpPopup(false);
+        setHpChangeVal(0);
     };
 
     const handleLongRest = () => {
@@ -36,8 +42,16 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
         onUpdate({ spellSlots: slots });
     };
 
-    const addEquipment = () => {
-        const newEquipment = [...(character.equipment || []), { id: Date.now(), item: '', damage: '', effect: '' }];
+    const addEquipment = (type = 'weapon') => {
+        const newItem = {
+            id: Date.now(),
+            type,
+            item: '',
+            damage: type === 'weapon' ? '' : undefined,
+            ac: type === 'armor' ? '' : undefined,
+            effect: ''
+        };
+        const newEquipment = [...(character.equipment || []), newItem];
         onUpdate({ equipment: newEquipment });
     };
 
@@ -51,10 +65,27 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
         onUpdate({ equipment: newEquipment });
     };
 
+    const addNote = () => {
+        if (!newNote.title.trim()) return;
+        const notes = Array.isArray(character.notes) ? character.notes : [];
+        onUpdate({ notes: [...notes, { ...newNote, id: Date.now() }] });
+        setNewNote({ title: '', content: '' });
+        setIsAddingNote(false);
+    };
+
+    const deleteNote = (id) => {
+        const notes = Array.isArray(character.notes) ? character.notes : [];
+        onUpdate({ notes: notes.filter(n => n.id !== id) });
+    };
+
     const exportToText = () => {
         const statsText = Object.entries(character.stats)
             .map(([name, val]) => `${name}: ${val} (мод. ${calculateMod(val) >= 0 ? '+' : ''}${calculateMod(val)})`)
             .join('\n');
+
+        const notesText = Array.isArray(character.notes)
+            ? character.notes.map(n => `--- ${n.title} ---\n${n.content}`).join('\n\n')
+            : character.notes || 'Нет заметок';
 
         const text = `ЛИСТ ПЕРСОНАЖА: ${character.name}\n` +
             `==========================\n` +
@@ -65,7 +96,7 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
             `КД: ${character.ac}\n` +
             `Хиты: ${character.hpCurrent ?? character.hpMax} / ${character.hpMax}\n\n` +
             `НАВЫКИ:\n${character.skills.join(', ')}\n\n` +
-            `ЗАМЕТКИ:\n${character.notes || 'Нет заметок'}\n\n` +
+            `ЗАМЕТКИ:\n${notesText}\n\n` +
             `Создано в D&D TMA - ${new Date().toLocaleDateString()}`;
 
         const blob = new Blob([text], { type: 'text/plain' });
@@ -100,6 +131,11 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                 display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid var(--border-color)'
             }}>
                 <button onClick={onBack} style={{ padding: '8px', background: 'transparent' }}><ArrowLeft /></button>
+                {character.image && (
+                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--accent-color)', flexShrink: 0 }}>
+                        <img src={character.image} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                )}
                 <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: '18px', fontWeight: '600' }}>{character.name}</h2>
                     <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{character.race} {character.class}, {character.level} ур.</p>
@@ -160,15 +196,19 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                             <div style={{ display: 'flex', gap: '10px', marginBottom: '25px' }}>
                                 <div
                                     className="glass"
-                                    onClick={() => onUpdate({ inspiration: !character.inspiration })}
-                                    style={{ flex: 1, padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+                                    style={{ flex: 1, padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}
                                 >
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '6px', border: '2px solid var(--accent-color)', backgroundColor: character.inspiration ? 'var(--accent-color)' : 'transparent' }} />
-                                    <span style={{ fontSize: '14px' }}>Вдохновение</span>
+                                    <span style={{ fontSize: '14px' }}>Вдохновение:</span>
+                                    <input
+                                        type="text"
+                                        value={character.inspiration || '0'}
+                                        onChange={e => onUpdate({ inspiration: e.target.value })}
+                                        style={{ width: '40px', background: 'transparent', border: 'none', color: 'var(--accent-color)', fontWeight: 'bold', fontSize: '16px', outline: 'none', borderBottom: '1px solid var(--border-color)' }}
+                                    />
                                 </div>
                                 <div className="glass" style={{ flex: 1, padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
-                                    <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Бонус мастерства:</span>
-                                    <span style={{ fontWeight: 'bold' }}>+2</span>
+                                    <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Мастерство:</span>
+                                    <span style={{ fontWeight: 'bold' }}>+{character.level || 1}</span>
                                 </div>
                             </div>
 
@@ -186,22 +226,53 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                 ))}
                             </div>
 
-                            {/* Equipment Section */}
+                            {/* Equipment Section with Currency */}
                             <div style={{ marginTop: '30px', marginBottom: '25px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                                     <h3 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <Package size={18} color="var(--accent-color)" /> Снаряжение
                                     </h3>
-                                    <button
-                                        onClick={addEquipment}
-                                        style={{
-                                            padding: '4px 12px', fontSize: '12px', background: 'rgba(255,183,77,0.1)',
-                                            color: 'var(--accent-color)', border: '1px solid var(--accent-color)', borderRadius: '8px'
-                                        }}
-                                    >
-                                        + Добавить
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,215,0,0.1)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(255,215,0,0.3)' }}>
+                                            <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: '#FFD700' }} />
+                                            <input
+                                                type="number" value={character.gold || 0}
+                                                onChange={e => onUpdate({ gold: parseInt(e.target.value) || 0 })}
+                                                style={{ width: '35px', background: 'transparent', border: 'none', color: '#FFD700', fontSize: '12px', fontWeight: 'bold', outline: 'none' }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(192,192,192,0.1)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(192,192,192,0.3)' }}>
+                                            <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: '#C0C0C0' }} />
+                                            <input
+                                                type="number" value={character.silver || 0}
+                                                onChange={e => onUpdate({ silver: parseInt(e.target.value) || 0 })}
+                                                style={{ width: '35px', background: 'transparent', border: 'none', color: '#C0C0C0', fontSize: '12px', fontWeight: 'bold', outline: 'none' }}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
+
+                                <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', overflowX: 'auto', paddingBottom: '5px' }}>
+                                    {[
+                                        { type: 'weapon', label: 'Оружие' },
+                                        { type: 'armor', label: 'Доспех' },
+                                        { type: 'spell', label: 'Заклинание' },
+                                        { type: 'item', label: 'Предмет' }
+                                    ].map(({ type, label }) => (
+                                        <button
+                                            key={type}
+                                            onClick={() => addEquipment(type)}
+                                            style={{
+                                                flexShrink: 0, padding: '8px 12px', fontSize: '11px', borderRadius: '10px',
+                                                background: 'rgba(255,183,77,0.05)', color: 'var(--accent-color)',
+                                                border: '1px dashed var(--accent-color)', minWidth: '80px'
+                                            }}
+                                        >
+                                            + {label}
+                                        </button>
+                                    ))}
+                                </div>
+
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     {(character.equipment || []).map(item => (
                                         <div key={item.id} className="glass" style={{ padding: '15px', borderRadius: '16px', position: 'relative' }}>
@@ -213,30 +284,50 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                             </button>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                                 <div>
-                                                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>Предмет</label>
+                                                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        {item.type === 'weapon' ? <Sword size={10} /> : item.type === 'armor' ? <Shield size={10} /> : item.type === 'spell' ? <Scroll size={10} /> : <Package size={10} />}
+                                                        {item.type === 'weapon' ? 'Оружие' : item.type === 'armor' ? 'Доспех' : item.type === 'spell' ? 'Заклинание' : 'Предмет'}
+                                                    </label>
                                                     <input
                                                         value={item.item}
                                                         onChange={e => updateEquipment(item.id, 'item', e.target.value)}
-                                                        placeholder="Напр. Световой меч"
+                                                        placeholder="Название..."
                                                         style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-color)', color: 'white', fontSize: '14px', outline: 'none' }}
                                                     />
                                                 </div>
                                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '15px' }}>
-                                                    <div>
-                                                        <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>Урон</label>
-                                                        <input
-                                                            value={item.damage}
-                                                            onChange={e => updateEquipment(item.id, 'damage', e.target.value)}
-                                                            placeholder="1d8"
-                                                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-color)', color: 'white', fontSize: '14px', outline: 'none' }}
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>Эффект</label>
+                                                    {(item.type === 'weapon' || item.type === 'spell') && (
+                                                        <div>
+                                                            <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+                                                                {item.type === 'weapon' ? 'Урон' : 'Урон/Эффект'}
+                                                            </label>
+                                                            <input
+                                                                value={item.damage}
+                                                                onChange={e => updateEquipment(item.id, 'damage', e.target.value)}
+                                                                placeholder={item.type === 'weapon' ? '1d8' : '2d6/Очар.'}
+                                                                style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-color)', color: 'white', fontSize: '14px', outline: 'none' }}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {item.type === 'armor' && (
+                                                        <div>
+                                                            <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>КД</label>
+                                                            <input
+                                                                value={item.ac}
+                                                                onChange={e => updateEquipment(item.id, 'ac', e.target.value)}
+                                                                placeholder="15"
+                                                                style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-color)', color: 'white', fontSize: '14px', outline: 'none' }}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    <div style={{ gridColumn: item.type === 'item' ? 'span 2' : 'auto' }}>
+                                                        <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+                                                            {item.type === 'item' ? 'Описание' : 'Эффект'}
+                                                        </label>
                                                         <input
                                                             value={item.effect}
                                                             onChange={e => updateEquipment(item.id, 'effect', e.target.value)}
-                                                            placeholder="Магический, +1"
+                                                            placeholder={item.type === 'item' ? 'Что делает...' : 'Магический...'}
                                                             style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-color)', color: 'white', fontSize: '14px', outline: 'none' }}
                                                         />
                                                     </div>
@@ -265,7 +356,9 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                 <div className="glass" style={{ padding: '20px', borderRadius: '16px', textAlign: 'center' }}>
                                     <Dice5 size={24} color="var(--accent-secondary)" style={{ marginBottom: '8px' }} />
                                     <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>Инициатива</span>
-                                    <span style={{ fontSize: '24px', fontWeight: 'bold' }}>+2</span>
+                                    <span style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                                        {calculateMod(character.stats['Ловкость']) >= 0 ? '+' : ''}{calculateMod(character.stats['Ловкость'])}
+                                    </span>
                                 </div>
                             </div>
 
@@ -304,20 +397,59 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
 
                     {activeTab === 'notes' && (
                         <motion.div key="notes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                            <div className="glass" style={{ padding: '20px', borderRadius: '16px', minHeight: '300px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', color: 'var(--text-secondary)' }}>
-                                    <Edit3 size={18} />
-                                    <span>Заметки приключенца</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                <h3 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <BookOpen size={18} color="var(--accent-color)" /> Заметки
+                                </h3>
+                                {!isAddingNote && (
+                                    <button
+                                        onClick={() => setIsAddingNote(true)}
+                                        style={{ padding: '4px 12px', fontSize: '12px', background: 'rgba(255,183,77,0.1)', color: 'var(--accent-color)', border: '1px solid var(--accent-color)', borderRadius: '8px' }}
+                                    >
+                                        + Новая заметка
+                                    </button>
+                                )}
+                            </div>
+
+                            {isAddingNote && (
+                                <div className="glass" style={{ padding: '20px', borderRadius: '16px', marginBottom: '20px' }}>
+                                    <input
+                                        value={newNote.title}
+                                        onChange={e => setNewNote({ ...newNote, title: e.target.value })}
+                                        placeholder="Заголовок..."
+                                        style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-color)', color: 'white', fontSize: '16px', fontWeight: 'bold', marginBottom: '10px', outline: 'none' }}
+                                    />
+                                    <textarea
+                                        value={newNote.content}
+                                        onChange={e => setNewNote({ ...newNote, content: e.target.value })}
+                                        placeholder="Текст заметки..."
+                                        style={{ width: '100%', height: '100px', background: 'transparent', border: 'none', color: 'white', resize: 'none', outline: 'none' }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                                        <button onClick={addNote} style={{ flex: 1, backgroundColor: 'var(--accent-color)', color: 'black', padding: '10px', borderRadius: '10px' }}>Создать</button>
+                                        <button onClick={() => setIsAddingNote(false)} style={{ flex: 1, backgroundColor: 'var(--card-bg)', padding: '10px', borderRadius: '10px' }}>Отмена</button>
+                                    </div>
                                 </div>
-                                <textarea
-                                    value={character.notes || ''}
-                                    onChange={(e) => onUpdate({ notes: e.target.value })}
-                                    placeholder="Записывайте здесь важные события, имена NPC и зацепки..."
-                                    style={{
-                                        width: '100%', height: '250px', background: 'transparent', border: 'none', color: 'white',
-                                        resize: 'none', fontSize: '16px', lineHeight: '1.6', outline: 'none'
-                                    }}
-                                />
+                            )}
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                {(Array.isArray(character.notes) ? character.notes : []).map(note => (
+                                    <div key={note.id} className="glass" style={{ padding: '20px', borderRadius: '16px', position: 'relative' }}>
+                                        <button
+                                            onClick={() => deleteNote(note.id)}
+                                            style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', color: 'rgba(255,255,255,0.3)' }}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                        <h4 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '8px', color: 'var(--accent-color)' }}>{note.title}</h4>
+                                        <p style={{ fontSize: '14px', lineHeight: '1.5', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{note.content}</p>
+                                    </div>
+                                ))}
+                                {(!character.notes || character.notes.length === 0) && !isAddingNote && (
+                                    <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)', border: '1px dashed var(--border-color)', borderRadius: '16px' }}>
+                                        У вас пока нет заметок
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     )}
@@ -342,26 +474,56 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                             onClick={e => e.stopPropagation()}
                         >
                             <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>Изменить ОЗ</h3>
-                            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+
+                            <div style={{ textAlign: 'center', marginBottom: '25px' }}>
+                                <div style={{ fontSize: '48px', fontWeight: 'bold', color: hpChangeVal >= 0 ? 'var(--success-color)' : 'var(--hp-color)' }}>
+                                    {hpChangeVal > 0 ? `+${hpChangeVal}` : hpChangeVal}
+                                </div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Итого: {(character.hpCurrent ?? character.hpMax) + hpChangeVal} / {character.hpMax}
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', justifyContent: 'center' }}>
                                 <button
-                                    onClick={() => handleHpChange(-5)}
-                                    style={{ flex: 1, backgroundColor: 'var(--hp-color)', borderRadius: '12px', padding: '15px' }}
+                                    onClick={() => setHpChangeVal(v => v - 1)}
+                                    style={{
+                                        width: '60px', height: '60px', backgroundColor: 'var(--hp-color)',
+                                        borderRadius: '30px', fontSize: '24px', fontWeight: 'bold',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none'
+                                    }}
                                 >
-                                    -5
+                                    -1
                                 </button>
                                 <button
-                                    onClick={() => handleHpChange(5)}
-                                    style={{ flex: 1, backgroundColor: 'var(--success-color)', borderRadius: '12px', padding: '15px' }}
+                                    onClick={() => setHpChangeVal(v => v + 1)}
+                                    style={{
+                                        width: '60px', height: '60px', backgroundColor: 'var(--success-color)',
+                                        borderRadius: '30px', fontSize: '24px', fontWeight: 'bold',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none'
+                                    }}
                                 >
-                                    +5
+                                    +1
                                 </button>
                             </div>
-                            <button
-                                onClick={() => setHpPopup(false)}
-                                style={{ width: '100%', padding: '12px', background: 'var(--card-bg)', borderRadius: '12px' }}
-                            >
-                                Закрыть
-                            </button>
+
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button
+                                    onClick={() => handleHpChange()}
+                                    style={{ flex: 1, padding: '15px', background: 'var(--accent-color)', color: 'black', borderRadius: '12px', fontWeight: 'bold' }}
+                                >
+                                    Применить
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setHpPopup(false);
+                                        setHpChangeVal(0);
+                                    }}
+                                    style={{ flex: 1, padding: '15px', background: 'var(--card-bg)', borderRadius: '12px' }}
+                                >
+                                    Отмена
+                                </button>
+                            </div>
                         </motion.div>
                     </motion.div>
                 )}

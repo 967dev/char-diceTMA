@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Project specific
+*.json
+!package.json
+!package-lock.json
+!vercel.json
+!public/**/*.json
+!src/**/*.json
+!.gemini
