@@ -1,18 +1,72 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Sword, Scroll, BookOpen, Shield, Heart, Dice5, Coffee, Plus, Minus, Edit3, Download, Trash2, Package, FileJson } from 'lucide-react';
+import { ArrowLeft, Sword, Scroll, BookOpen, Shield, Heart, Dice5, Coffee, Plus, Minus, Edit3, Download, Trash2, Package, FileJson, Send, Star } from 'lucide-react';
 import DiceRoller from './DiceRoller';
+import { SPELL_DATABASE } from '../data/spellDatabase';
+import { getSpellSlotsForClass } from '../data/spellProgression';
 
 const CharacterSheet = ({ character, onUpdate, onBack }) => {
     const [activeTab, setActiveTab] = useState('main'); // main, combat, notes
     const [isDiceOpen, setIsDiceOpen] = useState(false);
     const [hpPopup, setHpPopup] = useState(false);
-    const [hpChangeVal, setHpChangeVal] = useState(0);
+    const [hpChange, setHpChange] = useState('');
     const [equipmentType, setEquipmentType] = useState('weapon'); // weapon, armor, item
     const [newNote, setNewNote] = useState({ title: '', content: '' });
     const [isAddingNote, setIsAddingNote] = useState(false);
+    const [showSpellSelector, setShowSpellSelector] = useState(false);
+    const [spellSearch, setSpellSearch] = useState('');
 
     const calculateMod = (score) => Math.floor((score - 10) / 2);
+
+    // Calculate Max Spell Level (Circle) based on Class and Level
+    const getMaxSpellLevel = () => {
+        const cls = character.class;
+        const lvl = character.level || 1;
+
+        if (['Волшебник', 'Чародей', 'Жрец', 'Бард', 'Друид'].includes(cls)) {
+            return Math.ceil(lvl / 2);
+        } else if (['Паладин', 'Следопыт'].includes(cls)) {
+            return lvl >= 2 ? Math.ceil(lvl / 2) : 0;
+        } else if (cls === 'Чернокнижник') {
+            // Warlock Pact Magic scaling is unique, simplified here for slots level
+            if (lvl >= 17) return 5;
+            if (lvl >= 11) return 5;
+            if (lvl >= 9) return 5;
+            if (lvl >= 7) return 4;
+            if (lvl >= 5) return 3;
+            if (lvl >= 3) return 2;
+            return 1;
+        }
+        return 0; // Non-casters
+    };
+
+    const maxSpellLevel = getMaxSpellLevel();
+    // Dynamic Max Spell Slots
+    const standardMaxSlots = getSpellSlotsForClass(character.class, character.level);
+    const maxSlots = { ...standardMaxSlots, ...(character.customSlots || {}) };
+    const hasSpellSlots = Object.keys(maxSlots).length > 0 || (character.class === "Чернокнижник");
+
+    // Calculate Character Level required for a specific Spell Circle
+    const getUnlockLevel = (spellLevel, cls) => {
+        if (spellLevel === 0) return 1;
+        if (['Бард', 'Жрец', 'Друид', 'Чародей', 'Волшебник', 'Чернокнижник'].includes(cls)) {
+            return Math.max(1, spellLevel * 2 - 1);
+        }
+        if (['Паладин', 'Следопыт'].includes(cls)) {
+            if (spellLevel === 1) return 2;
+            if (spellLevel === 2) return 5;
+            if (spellLevel === 3) return 9;
+            return spellLevel * 4 - 3; // Approx for higher lists if added
+        }
+        return 1;
+    };
+
+    // Filter spells: Match Class AND Level <= Max Available OR Subclass Match
+    // Filter spells: Match Class OR Subclass. NO LEVEL LIMIT.
+    const availableSpells = SPELL_DATABASE.filter(s =>
+        (s.class.includes(character.class) || (s.subclass && character.subclass && s.subclass.includes(character.subclass))) &&
+        (s.name.toLowerCase().includes(spellSearch.toLowerCase()) || s.school.toLowerCase().includes(spellSearch.toLowerCase()))
+    ).sort((a, b) => a.name.localeCompare(b.name));
 
     const handleHpChange = (amount) => {
         const newHp = Math.min(character.hpMax, Math.max(0, (character.hpCurrent ?? character.hpMax) + hpChangeVal));
@@ -26,23 +80,52 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
             onUpdate({
                 hpCurrent: character.hpMax,
                 tempHp: 0,
-                spellSlots: { 1: 3, 2: 0, 3: 0 }
+                spellSlots: {} // Reset to default max
             });
             alert('Вы отлично выспались! Силы восстановлены.');
         }
     };
 
-    const toggleSpellSlot = (level, index) => {
-        const slots = { ...(character.spellSlots || { 1: 3, 2: 0, 3: 0 }) };
-        if (slots[level] >= index) {
-            slots[level] = index - 1;
+    const toggleSpellSlot = (level, slotIndex) => {
+        const current = character.spellSlots?.[level] ?? maxSlots[level];
+        // Logic: if clicking a filled slot (<= current), reduce count.
+        let newVal = current;
+        if (slotIndex <= current) {
+            newVal = slotIndex - 1;
         } else {
-            slots[level] = index;
+            newVal = slotIndex;
         }
-        onUpdate({ spellSlots: slots });
+
+        onUpdate({
+            spellSlots: {
+                ...character.spellSlots,
+                [level]: newVal
+            }
+        });
+    };
+
+    const addSpell = (spell) => {
+        const newItem = {
+            id: Date.now(),
+            type: 'spell',
+            item: spell.name,
+            damage: spell.damage,
+            effect: spell.desc,
+            level: spell.level,
+            school: spell.school,
+            link: spell.link
+        };
+        const newEquipment = [...(character.equipment || []), newItem];
+        onUpdate({ equipment: newEquipment });
+        setShowSpellSelector(false);
+        setSpellSearch('');
     };
 
     const addEquipment = (type = 'weapon') => {
+        if (type === 'spell') {
+            setShowSpellSelector(true);
+            return;
+        }
         const newItem = {
             id: Date.now(),
             type,
@@ -123,6 +206,22 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
         URL.revokeObjectURL(url);
     };
 
+    const shareToTelegram = () => {
+        const statsSummary = Object.entries(character.stats)
+            .map(([name, val]) => `${name.substring(0, 3)}: ${val} (${calculateMod(val) >= 0 ? '+' : ''}${calculateMod(val)})`)
+            .join(' | ');
+
+        const text = `🛡️ ПЕРСОНАЖ: ${character.name}\n` +
+            `🔹 ${character.race} — ${character.class}, ${character.level} уровень\n\n` +
+            `📊 ХАРАКТЕРИСТИКИ:\n${statsSummary}\n\n` +
+            `🛡️ КД: ${character.ac} | ❤️ ХП: ${character.hpCurrent ?? character.hpMax}/${character.hpMax}\n` +
+            (character.bio ? `\n📖 ИСТОРИЯ:\n${character.bio.substring(0, 200)}${character.bio.length > 200 ? '...' : ''}\n` : '') +
+            `\nСоздано в D&D Pocket Sheet 🛡️✨`;
+
+        const url = `https://t.me/share/url?url=${encodeURIComponent('https://dnd-pocket-sheet.vercel.app')} &text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
+
     return (
         <div className="character-sheet animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
             {/* Sticky Header */}
@@ -141,6 +240,13 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                     <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{character.race} {character.class}, {character.level} ур.</p>
                 </div>
                 <div style={{ display: 'flex', gap: '5px' }}>
+                    <button
+                        onClick={shareToTelegram}
+                        style={{ padding: '8px', background: 'transparent', color: '#0088cc' }}
+                        title="Поделиться в Telegram"
+                    >
+                        <Send size={20} />
+                    </button>
                     <button
                         onClick={exportToJson}
                         style={{ padding: '8px', background: 'transparent', color: 'var(--accent-color)' }}
@@ -180,14 +286,43 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                 {Object.entries(character.stats).map(([name, val]) => (
                                     <div
                                         key={name} className="glass stat-block"
-                                        onClick={() => setIsDiceOpen(true)}
-                                        style={{ padding: '12px', borderRadius: '16px', textAlign: 'center', cursor: 'pointer' }}
+                                        style={{ padding: '12px', borderRadius: '16px', textAlign: 'center', cursor: 'pointer', position: 'relative' }}
                                     >
-                                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase' }}>{name.substring(0, 3)}</span>
-                                        <span style={{ fontSize: '24px', fontWeight: 'bold', display: 'block', margin: '4px 0' }}>
-                                            {calculateMod(val) >= 0 ? '+' : ''}{calculateMod(val)}
-                                        </span>
-                                        <span style={{ fontSize: '12px', opacity: 0.5 }}>{val}</span>
+                                        <div onClick={() => setIsDiceOpen(true)}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase' }}>{name.substring(0, 3)}</span>
+                                            <span style={{ fontSize: '24px', fontWeight: 'bold', display: 'block', margin: '4px 0' }}>
+                                                {calculateMod(val) >= 0 ? '+' : ''}{calculateMod(val)}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="number"
+                                            value={val}
+                                            onChange={e => {
+                                                const input = e.target.value;
+                                                if (input === '') {
+                                                    onUpdate({ stats: { ...character.stats, [name]: '' } });
+                                                } else {
+                                                    const num = parseInt(input);
+                                                    if (!isNaN(num)) {
+                                                        const limited = Math.min(30, Number(input)); // Allow typing 0-9 freely, only cap max
+                                                        onUpdate({ stats: { ...character.stats, [name]: limited } });
+                                                    }
+                                                }
+                                            }}
+                                            onBlur={e => {
+                                                let final = parseInt(e.target.value);
+                                                if (isNaN(final) || final < 1) final = 10; // Default to 10 if empty
+                                                onUpdate({ stats: { ...character.stats, [name]: final } });
+                                                e.target.style.borderBottom = '1px solid transparent';
+                                            }}
+                                            onClick={e => e.stopPropagation()}
+                                            style={{
+                                                width: '100%', background: 'transparent', border: 'none',
+                                                textAlign: 'center', fontSize: '12px', opacity: 0.7, color: 'var(--text-secondary)',
+                                                outline: 'none', borderBottom: '1px solid transparent'
+                                            }}
+                                            onFocus={e => e.target.style.borderBottom = '1px solid var(--accent-color)'}
+                                        />
                                     </div>
                                 ))}
                             </div>
@@ -208,22 +343,81 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                 </div>
                                 <div className="glass" style={{ flex: 1, padding: '12px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
                                     <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Мастерство:</span>
-                                    <span style={{ fontWeight: 'bold' }}>+{character.level || 1}</span>
+                                    <span style={{ fontWeight: 'bold' }}>+{Math.floor((character.level - 1) / 4) + 2}</span>
                                 </div>
                             </div>
 
                             {/* Skills */}
                             <h3 style={{ fontSize: '16px', marginBottom: '15px' }}>Навыки</h3>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {character.skills.map(skill => (
-                                    <div key={skill} className="glass" style={{ padding: '10px 15px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <div style={{ width: '6px', height: '6px', borderRadius: '3px', backgroundColor: 'var(--accent-color)' }} />
-                                            <span style={{ fontSize: '14px' }}>{skill}</span>
+                                {[
+                                    'Акробатика (Лов)', 'Анализ (Инт)', 'Атлетика (Сил)', 'Восприятие (Муд)',
+                                    'Выживание (Муд)', 'Выступление (Хар)', 'Запугивание (Хар)', 'История (Инт)',
+                                    'Ловкость рук (Лов)', 'Магия (Инт)', 'Медицина (Муд)', 'Обман (Хар)',
+                                    'Природа (Инт)', 'Проницательность (Муд)', 'Религия (Инт)', 'Скрытность (Лов)',
+                                    'Убеждение (Хар)', 'Уход за животными (Муд)'
+                                ].map(skill => {
+                                    const isProficient = character.skills.includes(skill);
+                                    const isExpert = character.expertise && character.expertise.includes(skill);
+
+                                    let attrName = '';
+                                    if (skill.includes('(Сил)')) attrName = 'Сила';
+                                    else if (skill.includes('(Лов)')) attrName = 'Ловкость';
+                                    else if (skill.includes('(Инт)')) attrName = 'Интеллект';
+                                    else if (skill.includes('(Муд)')) attrName = 'Мудрость';
+                                    else if (skill.includes('(Хар)')) attrName = 'Харизма';
+
+                                    const attrMod = calculateMod(character.stats[attrName] || 10);
+                                    const profBonus = Math.floor((character.level - 1) / 4) + 2;
+
+                                    // Calculate total mod: Attr + (Expert ? 2*Prof : (Prof ? Prof : 0))
+                                    const totalMod = attrMod + (isExpert ? profBonus * 2 : (isProficient ? profBonus : 0));
+
+                                    const toggleSkillState = () => {
+                                        let newSkills = [...character.skills];
+                                        let newExpertise = [...(character.expertise || [])];
+
+                                        if (!isProficient && !isExpert) {
+                                            // None -> Proficient
+                                            newSkills.push(skill);
+                                        } else if (isProficient) {
+                                            // Proficient -> Expertise
+                                            newSkills = newSkills.filter(s => s !== skill);
+                                            newExpertise.push(skill);
+                                        } else {
+                                            // Expertise -> None
+                                            newExpertise = newExpertise.filter(s => s !== skill);
+                                        }
+
+                                        onUpdate({ skills: newSkills, expertise: newExpertise });
+                                    };
+
+                                    return (
+                                        <div
+                                            key={skill}
+                                            className="glass"
+                                            onClick={toggleSkillState}
+                                            style={{ padding: '10px 15px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{
+                                                    width: '6px', height: '6px', borderRadius: '3px',
+                                                    backgroundColor: isExpert ? 'var(--accent-secondary)' : (isProficient ? 'var(--accent-color)' : 'transparent'),
+                                                    border: (isProficient || isExpert) ? 'none' : '1px solid var(--text-secondary)',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                }}>
+                                                    {isExpert && <div style={{ width: '4px', height: '4px', borderRadius: '2px', background: 'black' }} />}
+                                                </div>
+                                                <span style={{ fontSize: '14px', color: (isProficient || isExpert) ? 'white' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    {skill} {isExpert && <Star size={10} fill="var(--accent-secondary)" color="var(--accent-secondary)" />}
+                                                </span>
+                                            </div>
+                                            <span style={{ fontWeight: (isProficient || isExpert) ? 'bold' : 'normal', fontSize: '14px', color: isExpert ? 'var(--accent-secondary)' : (isProficient ? 'var(--accent-color)' : 'white') }}>
+                                                {totalMod >= 0 ? '+' : ''}{totalMod}
+                                            </span>
                                         </div>
-                                        <span style={{ fontWeight: 'bold', fontSize: '14px' }}>+2</span>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
 
                             {/* Equipment Section with Currency */}
@@ -275,7 +469,7 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     {(character.equipment || []).map(item => (
-                                        <div key={item.id} className="glass" style={{ padding: '15px', borderRadius: '16px', position: 'relative' }}>
+                                        <div key={item.id} className="glass" style={{ padding: '15px 40px 15px 15px', borderRadius: '16px', position: 'relative' }}>
                                             <button
                                                 onClick={() => deleteEquipment(item.id)}
                                                 style={{ position: 'absolute', top: '10px', right: '10px', background: 'transparent', color: 'rgba(255,255,255,0.3)', padding: '5px' }}
@@ -287,6 +481,17 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                                     <label style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                         {item.type === 'weapon' ? <Sword size={10} /> : item.type === 'armor' ? <Shield size={10} /> : item.type === 'spell' ? <Scroll size={10} /> : <Package size={10} />}
                                                         {item.type === 'weapon' ? 'Оружие' : item.type === 'armor' ? 'Доспех' : item.type === 'spell' ? 'Заклинание' : 'Предмет'}
+                                                        {item.type === 'spell' && item.link && (
+                                                            <a
+                                                                href={item.link}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--accent-color)', textDecoration: 'none' }}
+                                                            >
+                                                                <BookOpen size={10} />
+                                                                TTG Club
+                                                            </a>
+                                                        )}
                                                     </label>
                                                     <input
                                                         value={item.item}
@@ -362,25 +567,44 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                                 </div>
                             </div>
 
-                            <h3 style={{ fontSize: '16px', marginBottom: '15px' }}>Ячейки заклинаний</h3>
-                            <div className="glass" style={{ padding: '20px', borderRadius: '16px', marginBottom: '25px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-                                    <span style={{ fontSize: '14px' }}>1-й Круг</span>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        {[1, 2, 3].map(i => (
-                                            <div
-                                                key={i}
-                                                onClick={() => toggleSpellSlot(1, i)}
-                                                style={{
-                                                    width: '24px', height: '24px', borderRadius: '12px', border: '2px solid var(--mana-color)',
-                                                    backgroundColor: (character.spellSlots?.[1] ?? 3) >= i ? 'var(--mana-color)' : 'transparent',
-                                                    cursor: 'pointer'
-                                                }}
-                                            />
-                                        ))}
+                            {hasSpellSlots && (
+                                <>
+                                    <h3 style={{ fontSize: '16px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span>Ячейки заклинаний</span>
+                                        {/* Future: Add Manual Edit Button here */}
+                                    </h3>
+                                    <div className="glass" style={{ padding: '20px', borderRadius: '16px', marginBottom: '25px' }}>
+                                        {Object.keys(maxSlots).sort((a, b) => Number(a) - Number(b)).map(lvl => {
+                                            const total = maxSlots[lvl];
+                                            const current = character.spellSlots?.[lvl] ?? total;
+
+                                            return (
+                                                <div key={lvl} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
+                                                    <span style={{ fontSize: '14px' }}>{lvl}-й Круг</span>
+                                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: '70%' }}>
+                                                        {Array.from({ length: total }, (_, i) => i + 1).map(i => (
+                                                            <div
+                                                                key={i}
+                                                                onClick={() => toggleSpellSlot(lvl, i)}
+                                                                style={{
+                                                                    width: '24px', height: '24px', borderRadius: '12px', border: '2px solid var(--mana-color)',
+                                                                    backgroundColor: current >= i ? 'var(--mana-color)' : 'transparent',
+                                                                    cursor: 'pointer', flexShrink: 0
+                                                                }}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {Object.keys(maxSlots).length === 0 && (
+                                            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                                                Нет доступных ячеек
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            </div>
+                                </>
+                            )}
 
                             <button
                                 onClick={handleLongRest}
@@ -397,6 +621,18 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
 
                     {activeTab === 'notes' && (
                         <motion.div key="notes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                            {/* Bio Section */}
+                            {character.bio && (
+                                <div className="glass" style={{ padding: '20px', borderRadius: '16px', marginBottom: '25px', background: 'rgba(255,183,77,0.03)', border: '1px solid rgba(255,183,77,0.1)' }}>
+                                    <h3 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: 'var(--accent-color)' }}>
+                                        <Edit3 size={18} /> История и описание
+                                    </h3>
+                                    <p style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', fontStyle: 'italic' }}>
+                                        {character.bio}
+                                    </p>
+                                </div>
+                            )}
+
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                                 <h3 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <BookOpen size={18} color="var(--accent-color)" /> Заметки
@@ -555,6 +791,71 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
                     <span style={{ fontSize: '10px' }}>Кубы</span>
                 </button>
             </nav>
+
+            {/* Spell Selector Modal */}
+            <AnimatePresence>
+                {showSpellSelector && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.85)', padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setShowSpellSelector(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+                            className="glass"
+                            style={{ width: '100%', maxWidth: '400px', maxHeight: '80vh', padding: '25px', borderRadius: '24px', position: 'relative', display: 'flex', flexDirection: 'column' }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h3 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <Scroll color="var(--accent-color)" /> Выбор заклинания
+                                </h3>
+                                <button onClick={() => setShowSpellSelector(false)} style={{ background: 'transparent', color: 'var(--text-secondary)' }}>
+                                    Закрыть
+                                </button>
+                            </div>
+
+                            <input
+                                type="text"
+                                placeholder="Поиск заклинания..."
+                                value={spellSearch}
+                                onChange={e => setSpellSearch(e.target.value)}
+                                style={{ width: '100%', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: 'white', marginBottom: '15px' }}
+                            />
+
+                            <div style={{ flex: 1, overflowY: 'auto' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                                    {availableSpells.map(spell => (
+                                        <div
+                                            key={spell.name}
+                                            onClick={() => addSpell(spell)}
+                                            className="glass"
+                                            style={{
+                                                padding: '12px', borderRadius: '12px', cursor: 'pointer',
+                                                border: '1px solid var(--border-color)',
+                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ fontWeight: 'bold' }}>{spell.name}</div>
+                                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                                    {spell.level === 0 ? 'Заговор' : `${spell.level} круг`} • {spell.school} • {spell.damage}
+                                                </div>
+                                            </div>
+                                            <Plus size={16} color="var(--accent-color)" />
+                                        </div>
+                                    ))}
+                                </div>
+                                {availableSpells.length === 0 && (
+                                    <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                                        Заклинания не найдены
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Dice Roller Overlay */}
             <DiceRoller isOpen={isDiceOpen} onClose={() => setIsDiceOpen(false)} />

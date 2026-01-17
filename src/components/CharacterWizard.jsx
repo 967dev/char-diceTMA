@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Save, Camera, Check, Dices, Upload, Info, ExternalLink, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Save, Camera, Check, Dices, Upload, Info, ExternalLink, X, Edit3, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RACE_DETAILS } from '../data/races';
 import { CLASS_DETAILS, CLASSES } from '../data/classes';
@@ -34,6 +34,17 @@ const RACES = [
     { ru: "Эльф (астральный)", en: "Astral Elf" }, { ru: "Юань-ти", en: "Yuan-ti" }
 ];
 
+const SUBCLASSES = {
+    "Бард": ["Коллегия Знаний", "Коллегия Доблести", "Коллегия Очарования", "Коллегия Мечей", "Коллегия Шепотов", "Коллегия Созидания", "Коллегия Духов"],
+    "Жрец": ["Домен Жизни", "Домен Света", "Домен Обмана", "Домен Природы", "Домен Бури", "Домен Знаний", "Домен Войны"],
+    "Друид": ["Круг Земли", "Круг Луны", "Круг Пастыря", "Круг Снов", "Круг Спор", "Круг Звезд"],
+    "Паладин": ["Клятва Преданности", "Клятва Древних", "Клятва Мести", "Клятва Искупления", "Клятва Славы"],
+    "Следопыт": ["Охотник", "Повелитель зверей", "Убийца монстров", "Сумрачный охотник", "Странник горизонта"],
+    "Волшебник": ["Школа Ограждения", "Школа Вызова", "Школа Прорицания", "Школа Очарования", "Школа Иллюзии", "Школа Некромантии", "Школа Преобразования"],
+    "Чернокнижник": ["Архифея", "Исчадие", "Великий Древний", "Небожитель", "Гений", "Нежить"],
+    "Чародей": ["Наследие драконьей крови", "Дикая магия", "Божественная душа", "Теневая магия", "Штормовое колдовство"]
+};
+
 const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
     const [step, setStep] = useState(1);
 
@@ -56,7 +67,10 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
         inspiration: '0',
         notes: [],
         gold: 0,
-        silver: 0
+        silver: 0,
+        bio: '',
+        expertise: [],
+        subclass: ''
     });
 
     const [raceSearch, setRaceSearch] = useState('');
@@ -79,10 +93,26 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
     };
 
     const toggleSkill = (skill) => {
-        const newSkills = formData.skills.includes(skill)
-            ? formData.skills.filter(s => s !== skill)
-            : [...formData.skills, skill];
-        setFormData({ ...formData, skills: newSkills });
+        const isProficient = formData.skills.includes(skill);
+        const isExpert = formData.expertise.includes(skill);
+
+        if (!isProficient && !isExpert) {
+            // None -> Proficient
+            setFormData({ ...formData, skills: [...formData.skills, skill] });
+        } else if (isProficient) {
+            // Proficient -> Expertise
+            setFormData({
+                ...formData,
+                skills: formData.skills.filter(s => s !== skill),
+                expertise: [...formData.expertise, skill]
+            });
+        } else {
+            // Expertise -> None
+            setFormData({
+                ...formData,
+                expertise: formData.expertise.filter(s => s !== skill)
+            });
+        }
     };
 
     const calculateMod = (score) => Math.floor((score - 10) / 2);
@@ -233,7 +263,12 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                     level: data.level || 1,
                     inspiration: data.inspiration || '0',
                     gold: data.gold || 0,
-                    silver: data.silver || 0
+                    notes: Array.isArray(data.notes) ? data.notes : [],
+                    level: data.level || 1,
+                    inspiration: data.inspiration || '0',
+                    gold: data.gold || 0,
+                    silver: data.silver || 0,
+                    expertise: data.expertise || []
                 });
                 alert('Персонаж успешно импортирован!');
             } catch (err) {
@@ -248,7 +283,7 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
             <header style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px' }}>
                 <button onClick={onCancel} style={{ padding: '8px', background: 'transparent' }}><ArrowLeft /></button>
                 <div style={{ flex: 1 }}>
-                    <h2>Новый Герой ({step}/4)</h2>
+                    <h2>Новый Герой ({step}/5)</h2>
                 </div>
                 {step === 1 && (
                     <div style={{ position: 'relative' }}>
@@ -322,6 +357,7 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                                             type="text" placeholder="Выберите расу..."
                                             value={raceSearch || formData.race}
                                             onFocus={() => setShowRaceDropdown(true)}
+                                            onBlur={() => setTimeout(() => setShowRaceDropdown(false), 200)}
                                             onChange={e => {
                                                 setRaceSearch(e.target.value);
                                                 setShowRaceDropdown(true);
@@ -373,6 +409,7 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                                             type="text" placeholder="Выберите класс..."
                                             value={classSearch || formData.class}
                                             onFocus={() => setShowClassDropdown(true)}
+                                            onBlur={() => setTimeout(() => setShowClassDropdown(false), 200)}
                                             onChange={e => {
                                                 setClassSearch(e.target.value);
                                                 setShowClassDropdown(true);
@@ -417,6 +454,28 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                                         <Info size={20} />
                                     </button>
                                 </div>
+
+                                {formData.class && SUBCLASSES[formData.class] && (
+                                    <div className="animate-fade-in" style={{ marginTop: '15px' }}>
+                                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>
+                                            Архетип / Подкласс
+                                        </label>
+                                        <select
+                                            value={formData.subclass}
+                                            onChange={e => setFormData({ ...formData, subclass: e.target.value })}
+                                            style={{
+                                                width: '100%', padding: '12px', borderRadius: '12px',
+                                                border: '1px solid var(--border-color)', background: 'var(--card-bg)', color: 'white',
+                                                appearance: 'none', cursor: 'pointer'
+                                            }}
+                                        >
+                                            <option value="">-- Выберите архетип --</option>
+                                            {SUBCLASSES[formData.class].map(sub => (
+                                                <option key={sub} value={sub}>{sub}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
                                 <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
                                     <button
                                         onClick={() => {
@@ -536,19 +595,50 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                                         className="glass"
                                         style={{
                                             padding: '12px 15px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '15px',
-                                            borderColor: formData.skills.includes(skill) ? 'var(--accent-color)' : 'var(--border-color)'
+                                            borderColor: formData.skills.includes(skill) ? 'var(--accent-color)' : (formData.expertise.includes(skill) ? 'var(--accent-secondary)' : 'var(--border-color)')
                                         }}
                                     >
                                         <div style={{
                                             width: '20px', height: '20px', borderRadius: '6px', border: '2px solid var(--border-color)',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            backgroundColor: formData.skills.includes(skill) ? 'var(--accent-color)' : 'transparent'
+                                            backgroundColor: formData.skills.includes(skill) ? 'var(--accent-color)' : (formData.expertise.includes(skill) ? 'var(--accent-secondary)' : 'transparent')
                                         }}>
                                             {formData.skills.includes(skill) && <Check size={14} color="black" />}
+                                            {formData.expertise.includes(skill) && <Star size={12} fill="black" color="black" />}
                                         </div>
                                         <span>{skill}</span>
                                     </div>
                                 ))}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 5 && (
+                        <motion.div key="step5" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}>
+                            <div className="glass" style={{ padding: '20px', borderRadius: '20px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                                    <Edit3 size={20} color="var(--accent-color)" />
+                                    <h3 style={{ fontSize: '18px' }}>История и описание</h3>
+                                </div>
+                                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '15px' }}>
+                                    Расскажите о происхождении вашего героя, его целях или внешности. Это поможет лучше вжиться в роль! (Опционально)
+                                </p>
+                                <textarea
+                                    value={formData.bio}
+                                    onChange={e => setFormData({ ...formData, bio: e.target.value })}
+                                    placeholder="Напишите здесь историю вашего персонажа..."
+                                    style={{
+                                        width: '100%', height: '250px', background: 'rgba(0,0,0,0.2)',
+                                        border: '1px solid var(--border-color)', borderRadius: '12px',
+                                        padding: '15px', color: 'white', resize: 'none', outline: 'none',
+                                        fontSize: '14px', lineHeight: '1.6'
+                                    }}
+                                />
+                                <div style={{ marginTop: '10px', textAlign: 'right' }}>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                        {formData.bio ? `${formData.bio.length} символов` : 'Можно оставить пустым'}
+                                    </span>
+                                </div>
                             </div>
                         </motion.div>
                     )}
@@ -565,7 +655,7 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                             Назад
                         </button>
                     )}
-                    {step < 4 ? (
+                    {step < 5 ? (
                         <button className="wizard-next-btn" onClick={nextStep} style={{ flex: 2, backgroundColor: 'var(--accent-color)', color: 'black' }}>
                             Далее <ArrowRight size={18} style={{ marginLeft: '8px' }} />
                         </button>
@@ -663,7 +753,7 @@ const CharacterWizard = ({ onSave, onCancel, onStepChange }) => {
                     </motion.div>
                 )}
             </AnimatePresence>
-        </div>
+        </div >
     );
 };
 
