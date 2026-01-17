@@ -216,7 +216,7 @@ const CharacterSheet = ({ character, onUpdate, onBack }) => {
             `📊 ХАРАКТЕРИСТИКИ:\n${statsSummary}\n\n` +
             `🛡️ КД: ${character.ac} | ❤️ ХП: ${character.hpCurrent ?? character.hpMax}/${character.hpMax}\n` +
             (character.bio ? `\n📖 ИСТОРИЯ:\n${character.bio.substring(0, 200)}${character.bio.length > 200 ? '...' : ''}\n` : '') +
-            `\nСоздано в D&D Pocket Sheet 🛡️✨`;
+            `\nСоздано в Char&Dice 🛡️✨`;
 
         const url = `https://t.me/share/url?url=${encodeURIComponent('https://dnd-pocket-sheet.vercel.app')} &text=${encodeURIComponent(text)}`;
         window.open(url, '_blank');
